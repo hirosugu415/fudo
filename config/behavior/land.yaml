@@ -1,0 +1,10 @@
+# 土地市場（SPEC 10）。各マスは最も高い地代を払う用途に使われる。地価 = 年間の地代 ÷ 金利（outside.yaml）。
+
+residential_rent:
+  # 住む場所の地代 [円/世帯/年] は、住みたい世帯の多さで毎年調整する（付け値地代）。
+  # 新しい地代 = 地代 × exp(adjust_rate × (住んでいる世帯数 / 上限 − target_occupancy))、下限は floor_yen
+  initial_yen: 0.2
+  adjust_rate: 0.6            # 1/年。推定
+  target_occupancy: 0.5       # 推定
+  floor_yen: 0.05             # 円/世帯/年。推定
+  max_yen: 30.0               # 円/世帯/年。数値が発散しないための上限（数値上の値）

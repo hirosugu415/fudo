@@ -1,0 +1,39 @@
+# 森林（SPEC 第4.4章）。森林の型は 吉良 (1945) の暖かさの指数（WI）と寒さの指数（CI）で決める。
+#   WI = Σ max(0, 月平均気温 − base_c)、CI = Σ min(0, 月平均気温 − base_c)（12か月）
+# types は上から順に判定し、最初に当てはまったものにする。
+#   wi_min/wi_max：WI の範囲 [℃·月]、ci_min：CI の下限 [℃·月]（これより寒いと当てはまらない）
+#   max_stock_m3_per_ha：成熟した天然林の蓄積量。推定：日本の天然林の蓄積 150〜400 m³/ha
+#   growth_rate_per_yr ：ロジスティック成長の内的増加率。推定：伐採後 30〜80 年でほぼ回復する速さ
+
+base_c: 5.0                     # ℃。吉良 (1945) の基準温度
+min_annual_precip_mm: 500.0     # mm。年降水量がこれ未満なら森林にならない（草原）。推定
+
+types:
+  - name: subtropical
+    label: 亜熱帯林
+    wi_min: 180.0
+    wi_max: 1000.0
+    ci_min: -1000.0
+    max_stock_m3_per_ha: 250.0
+    growth_rate_per_yr: 0.10
+  - name: evergreen_broadleaf
+    label: 照葉樹林（常緑広葉樹林）
+    wi_min: 85.0
+    wi_max: 180.0
+    ci_min: -10.0               # 根拠：吉良 (1945)。CI −10 より寒いと常緑広葉樹は育ちにくい
+    max_stock_m3_per_ha: 300.0
+    growth_rate_per_yr: 0.08
+  - name: deciduous_broadleaf
+    label: 落葉広葉樹林
+    wi_min: 45.0
+    wi_max: 180.0
+    ci_min: -1000.0
+    max_stock_m3_per_ha: 250.0
+    growth_rate_per_yr: 0.06
+  - name: subalpine_conifer
+    label: 亜高山帯針葉樹林
+    wi_min: 15.0
+    wi_max: 45.0
+    ci_min: -1000.0
+    max_stock_m3_per_ha: 300.0
+    growth_rate_per_yr: 0.04

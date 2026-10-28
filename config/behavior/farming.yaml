@@ -1,0 +1,47 @@
+# 農業（SPEC 9.2 の農業部門。フェーズ2では世帯の家業）。1マス = 1 ha。
+
+food_need_kg_per_person_year: 150.0   # kg（米換算）/人/年。根拠：1人1年1石（約150kg）
+
+adult_age: [15, 64]           # 歳。働き手とみなす年齢
+labor_per_child_or_elder: 0.3 # 人。10〜14歳と65〜74歳の構成員の働きの割合。推定
+child_work_age: 10            # 歳
+elder_work_max_age: 74        # 歳
+
+crops:
+  # 収量 [kg 米換算/ha/年] = base_yield × 肥沃度 × 気候 × (用水) × (労働の充足)^labor_exponent
+  paddy:
+    label: 水田
+    base_yield_kg_per_ha: 1500.0   # 根拠：江戸後期の反収 1〜1.5石/反 ≒ 1500 kg/ha（玄米）
+    labor_per_ha: 2.0              # 人（働き手）/ha。根拠：江戸の標準的な本百姓は1町（約1ha）を家族の働き手2〜3人で耕した
+    reclaim_person_years_per_ha: 3.0   # 人年/ha。開墾の手間（畦・用水路づくりを含む）。推定
+    max_slope_deg: 3.0             # 度。これより急なところは水田にできない（棚田は扱わない）
+    min_irrigation: 0.3            # 用水の度合いがこれ未満では水田にできない
+    max_drainage: 0.8              # 水はけがこれより良いと水がたまらず水田にできない
+    wi_min: 50.0                   # ℃·月。暖かさの指数がこれ以下では稲が実らない。根拠：近世の稲作の北限（推定）
+    wi_full: 90.0                  # ℃·月。これ以上で気候の制約なし
+  field:
+    label: 畑
+    base_yield_kg_per_ha: 800.0    # kg（米換算）/ha。推定：麦・雑穀・豆の収穫の米換算
+    labor_per_ha: 1.5
+    reclaim_person_years_per_ha: 0.8
+    max_slope_deg: 15.0
+    min_irrigation: 0.0
+    max_drainage: 1.0
+    wi_min: 25.0
+    wi_full: 60.0
+labor_exponent: 0.6           # 無次元。働き手が足りないときの収量の減り方（生産関数の労働の弾力性）。推定
+yield_temperature_sensitivity_per_c: 0.06   # 1/℃。夏の気温が平年より1℃低いと収量がこの割合だけ減る（冷害）。推定
+precip_shortfall_sensitivity: 0.5           # 無次元。降水量が平年より少ない割合あたりの収量の減り方（干ばつ）。用水のない畑だけ。推定
+
+cultivation_radius_km: 1.5    # km。家から耕しに行ける田畑の範囲。推定：近世の村の耕作圏
+distance_labor_loss_per_km: 0.15   # 1/km。田畑が家から遠いほど、往復で働く時間が減る割合。推定
+reclaim_per_year_max_ha: 1.0  # ha/年。1世帯が1年に開墾を始められる面積の上限。推定
+reclaim_horizon_years: 10.0   # 年。開墾の手間を、この年数の収穫で割り戻して見積もる（どこに住むかの判断で使う）。推定
+release_surplus_ratio: 1.3    # 耕している面積が、働き手で耕せる面積のこの倍を超えたら、悪い田畑から手放す（貸しに出す）。推定
+harvest_month: 10             # 月。本番（毎月）の計算で、収穫と1年分の収支を計算する月
+
+tenancy:
+  initial_rent_share: 0.5     # 収穫に対する小作料の割合の初期値。根拠：明治初期の小作料は収穫の5割前後
+  adjust_rate: 0.1            # 1/年。借りたい面積と貸したい面積の比で、小作料の割合を毎年この速さで調整する
+  min_share: 0.2
+  max_share: 0.7

@@ -1,0 +1,32 @@
+# 世帯の判断（SPEC 9.1）。住む場所・仕事の選択はロジット。
+
+review_prob_per_year: 0.04    # 1/年。住む場所・仕事を見直す確率。推定：近世の農村は移動が少ない
+candidates_near: 15           # 個。見直すときに比べる、今の場所の近く（search_radius_km 以内）の候補のマス
+candidates_far: 15            # 個。マップ全体から、魅力の高さに応じて選ぶ候補のマス
+search_radius_km: 4.0         # km
+
+utility:
+  # 効用 = income × ln(手取りの年所得 / 基準) + access × ln(1 + 市場への近さ) − flood × 洪水の起きやすさ
+  #       + social × ln(1 + 近所の世帯数) − crowding × 混み具合 − (引っ越すなら) moving_cost
+  income: 1.0                 # 基準
+  income_ref_yen: 45.0        # 円/年。所得の基準（outside.yaml の外部の所得と同じ）
+  access: 0.15                # 推定
+  flood: 0.5                  # 推定
+  social: 0.15                # 推定：人が集まって住む（村をつくる）傾向
+  crowding: 1.0               # 推定：マスの住める上限に近いほど住みにくい
+  moving_cost: 0.4            # 推定
+  logit_scale: 0.25           # 効用の単位。小さいほど、最も効用の高い候補を確実に選ぶ
+  access_time_scale_hours: 1.0     # 時間。市場への近さ = Σ 店の数 × exp(−片道の時間 / この値)。推定
+  income_floor_yen: 1.0       # 円/年。所得の対数をとるときの下限（数値上の値）
+  amenity_income_elasticity: 0.5   # 無次元。所得が基準の何倍かに応じて、近さ・環境の重みが (所得/基準)^この値 倍になる（SPEC 9.1：所得が上がると重視するものが変わる）
+
+settlement:
+  residential_area_ha: 0.02   # ha/世帯。家と庭の面積。推定：近世の農家・町家 100〜300 m²
+  max_households_per_cell: 40 # 世帯/マス（1ha）。推定：近世の城下町の町人地の密度の目安
+  social_radius_km: 0.5       # km。近所の世帯数を数える範囲
+
+flood:
+  # 洪水の起きやすさ（0〜1）：川沿いの低いところほど高い
+  river_min_discharge_m3s: 2.0    # m³/s。洪水を起こしうる川
+  height_scale_m: 4.0             # m。川面からの高さがこの値で、起きやすさが e 分の1
+  distance_scale_km: 0.4          # km

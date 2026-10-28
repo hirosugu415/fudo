@@ -1,0 +1,12 @@
+# シミュレーションの設定（run_id に含まれる）。
+
+time:
+  start: "1870-01"              # 年-月。本番の開始。SPEC 第3章（明治初期）
+  end: "2150-12"                # 年-月。終了の既定値（ユーザー指定）
+  warmup_years: 100             # 年。本番の前のウォームアップ期間（SPEC 第3章）。1年ごとに計算し、1年ごとに保存する（ユーザー合意）
+
+output:
+  # 毎月保存する格子の変数。月の気温・降水は「平年値 + その年のずれ」で再現できるので、ずれ（スカラー）だけを保存する。
+  month_fields: [snow_mm, discharge_m3s, groundwater_mm, soil_mm]
+  # 社会の格子の変数（ウォームアップ中も保存する）
+  society_fields: [population, households, land_use, road, land_price, shops_daily, shops_specialty, inns]

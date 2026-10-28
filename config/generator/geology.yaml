@@ -1,0 +1,45 @@
+# 地質（SPEC 第4.1章）。岩石の種類は rocks に追加できる（順番がそのまま岩石の番号になる）。
+#   abundance   ：無次元。相対的な出現しやすさ（ノイズ場の重み）
+#   erodibility ：無次元。流水による下刻の係数 K への倍率（堆積岩 > 火山岩 > 花崗岩）。
+#                 推定：Stock & Montgomery (1999) が示す岩石間の K の差（1〜2桁）を、表示の範囲内で緩めに採った
+#   hardness    ：0〜1。岩盤の硬さ（トンネル・基礎工事のコストに使う。フェーズ4以降）。推定の相対値
+#   softness    ：0〜1。地盤の軟弱さ（地震時の揺れ・液状化。フェーズ7）。推定の相対値
+
+rocks:
+  - name: granite
+    label: 花崗岩
+    abundance: 1.0
+    erodibility: 0.5
+    hardness: 0.9
+    softness: 0.05
+  - name: sedimentary
+    label: 堆積岩
+    abundance: 1.6
+    erodibility: 1.5
+    hardness: 0.4
+    softness: 0.25
+  - name: limestone
+    label: 石灰岩
+    abundance: 0.35
+    erodibility: 0.8
+    hardness: 0.6
+    softness: 0.1
+  - name: volcanic
+    label: 火山岩
+    abundance: 0.9
+    erodibility: 1.0
+    hardness: 0.7
+    softness: 0.15
+
+alluvium:
+  label: 沖積層
+  erodibility: 3.0          # 無次元。未固結の堆積物は岩盤より削られやすい。推定
+  hardness: 0.05
+  softness: 0.9
+  min_thickness_m: 2.0      # m。堆積の厚さがこれを超えたマスを沖積層とする。推定：地質図で沖積層として塗られる厚さの目安
+
+pattern:
+  noise_scale_km: 5.0       # km。岩石の分布の基本の大きさ（ノイズの最も大きい波長）。推定：日本の地質図の岩体の大きさは数km
+  octaves: 3                # 個。ノイズを重ねる回数
+  persistence: 0.5          # 無次元。オクターブごとの振幅の減り方
+  warp_km: 2.0              # km。ドメインワープの強さ。境界を曲がりくねらせるため

@@ -1,0 +1,19 @@
+# 漁場（SPEC 第4.4章）。資源量はロジスティック成長（Schaefer モデル）で回復する。
+#   capacity_t_per_km2：資源量の上限 [t/km²]
+#   growth_rate_per_yr：内的増加率 [1/年]
+# 根拠：沿岸・内水面の漁獲の規模を念頭に置いた推定値
+
+coastal:
+  label: 沿岸漁場
+  max_depth_m: 60.0             # m。この水深より浅い海を沿岸漁場とする。推定：沿岸漁業の主な漁場
+  capacity_t_per_km2: 30.0
+  growth_rate_per_yr: 0.5
+lake:
+  label: 湖の漁場
+  capacity_t_per_km2: 10.0
+  growth_rate_per_yr: 0.4
+river:
+  label: 川の漁場
+  min_discharge_m3s: 3.0        # m³/s。年平均流量がこれを超える川を漁場とする。推定：アユ・サケなどの漁が成り立つ規模
+  capacity_t_per_km2: 15.0      # 川のマスの面積あたり
+  growth_rate_per_yr: 0.6

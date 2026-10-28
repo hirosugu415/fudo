@@ -1,0 +1,51 @@
+# 商業・サービス（SPEC 9.2）。フェーズ2では、1軒の店 = 1世帯の家業。
+# 店の選び方：世帯は、移動の手間・品物の値段（外から運ぶ費用）・店の集まり具合で店をロジットで選ぶ（Huff モデル）。
+#   効用 = −(年間の往復の時間 × 時間の価値 + 支出 × 運賃の割合) / (logit_share × 支出) + agglomeration × ln(その場所の店の数)
+
+goods:
+  daily:
+    label: 日用品・食料品
+    budget_share: 0.15        # 食料以外の支出のうち、この品物に使う割合。推定
+    trips_per_year: 24.0      # 回/年。買いに行く回数。推定：月2回の市
+    margin: 0.3               # 売上のうち、店の手元に残る割合（仕入れを除く）。推定
+    agglomeration: 0.5        # 店の集まり具合の効き方。推定
+    logit_share: 0.3          # 無次元。選び方のばらつき（支出に対する割合）。推定
+    weight_kg_per_yen: 15.0   # kg/円。運ぶ品物の重さ（運賃の計算用）。推定：雑貨・塩・油など
+    fixed_cost_yen_per_year: 3.0   # 円/年。店を構える固定費。推定
+  specialty:
+    label: 専門の品・サービス
+    budget_share: 0.08
+    trips_per_year: 3.0
+    margin: 0.4
+    agglomeration: 1.0
+    logit_share: 0.3
+    weight_kg_per_yen: 3.0    # 推定：呉服・道具・薬など
+    fixed_cost_yen_per_year: 8.0
+
+outside_shops:
+  # 外部の大都市の店（世帯はマップの外まで買いに行くこともできる）
+  shops_per_10k_people: 20.0  # 店/1万人。外部の大都市の店の多さ（集まり具合の計算用）。推定
+
+inn:
+  label: 宿・茶屋
+  spend_per_stop_yen: 0.03    # 円/人・回。旅人が休む・泊まるときに使うお金。推定：明治初期の旅籠代 0.1〜0.2円の一部
+  margin: 0.5
+  fixed_cost_yen_per_year: 3.0
+  catchment_cells: 2          # マス。旅人が休む地点から、このマス数以内の宿で休む
+  travelers_per_year_per_100k_squared: 3000.0   # 人/年。外部の大都市どうしの旅人の数 = この値 × (人口A/10万) × (人口B/10万)。推定（重力モデル）
+  rest_interval_hours: 3.0    # 時間。旅人はこの時間ほど歩くごとに休む（茶屋）
+  lodging_interval_hours: 9.0 # 時間。1日に歩く時間。これごとに泊まる（宿場）
+  climb_rest_m: 150.0         # m。この先 climb_lookahead_km の間にこれ以上登るなら、登る前に休む（峠のふもと）
+  climb_lookahead_km: 2.0
+  crossing_rest_hours: 0.5    # 時間。川を渡るのにこれ以上かかるなら、渡し場で休む
+
+entry:
+  consider_prob_per_year: 0.03   # 1/年。商売を始めるか考える世帯の割合（働き手がいる世帯）。推定
+  candidate_sites: 12         # 個。新しく店を開く場所の候補（既存の店のある場所以外）
+  logit_scale_yen: 3.0        # 円/年。商売を始めるかの選び方のばらつき。推定
+  start_money_yen: 5.0        # 円。店を開くのに要る蓄え。推定
+  site_score_radius_km: 2.0   # km。新しく店を開く場所の候補は「この範囲の世帯数」と「通行量」が多いマスから選ぶ
+  min_site_spacing_cells: 3   # マス。候補どうしの最小の間隔
+exit:
+  loss_years: 2               # 年。利益が「商売をやめた場合の所得」を下回る年がこれだけ続いたらやめる
+land_per_shop_ha: 0.02        # ha/軒。推定

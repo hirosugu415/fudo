@@ -1,0 +1,11 @@
+# ビューアの設定（表示だけに使う。結果に影響しない）。
+host: 127.0.0.1
+port: 8765
+vertical_exaggeration: 3.0      # 倍。標高を見やすくする強調。25km四方に対して起伏が小さく見えるため
+river_display_min_m3s: 0.05     # m³/s。年平均流量がこれを超える川を線で描く（集水面積およそ 1〜2 km² の小川まで）
+river_width_per_sqrt_m3s: 12.0  # m/√(m³/s)。川の線の太さ = この値 × √流量（表示用。誇張している）
+river_min_width_m: 35.0         # m。川の線の太さの下限（表示用）。25km四方を見渡したときに小川も見えるようにする
+playback_months_per_second: 6   # 月/秒。再生速度の初期値
+road_visible_level: 0.15        # 道の状態がこれ以上のマスを道として描く（behavior/transport.yaml の visible_level と同じ）
+road_width_m: 40.0              # m。道の帯の太さ（表示用。誇張している）
+house_height_m_per_household: 3.0   # m/世帯。集落の箱の高さ（表示用）

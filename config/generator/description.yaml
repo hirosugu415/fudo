@@ -1,0 +1,37 @@
+# 「今回の世界」の説明（SPEC 第4.0節）の作り方。シミュレーションには影響しない。
+
+peaks:
+  count: 5                      # 個。説明に載せる山の数
+  isolation_radius_km: 2.5      # km。この半径の中で最も高い地点を山頂とみなす
+  min_elevation_m: 200.0        # m。これより低い山頂は載せない
+rivers:
+  count: 5                      # 本。説明に載せる川の数（年平均流量の大きい順）
+lakes:
+  count: 3                      # 個
+  min_area_km2: 0.05            # km²。これより小さい湖は載せない
+resources:
+  max_per_kind: 4               # 件。鉱物の種類ごとに載せる鉱床の数（埋蔵量の大きい順）
+lowland_quantile: 0.5           # 無次元。気候の代表値は、陸のうち標高がこの分位より低いマス（人が住みやすい低地）の平均とする
+
+koppen:
+  # ケッペンの気候区分のしきい値。根拠：Kottek et al. (2006) の定義（北半球。夏 = 4〜9月）
+  tropical_min_c: 18.0          # ℃。最寒月がこれ以上なら A
+  polar_max_c: 10.0             # ℃。最暖月がこれ未満なら E
+  tundra_min_c: 0.0             # ℃。E のうち最暖月がこれ以上なら ET、未満なら EF
+  temperate_min_c: -3.0         # ℃。最寒月がこれより高ければ C、以下なら D
+  hot_summer_c: 22.0            # ℃。最暖月がこれ以上なら a
+  warm_month_c: 10.0            # ℃。この気温以上の月を数える（b: 4か月以上、c: 1〜3か月、d: 最寒月 < −38℃）
+  very_cold_min_c: -38.0        # ℃
+  warm_months_b: 4              # か月。b の条件：10℃以上の月がこの数以上
+  dry_threshold:                # 乾燥限界 [mm] = 20 × 年平均気温 + 加算値
+    per_c: 20.0
+    summer_rain: 280.0          # 年降水量の70%以上が夏に降る場合
+    winter_rain: 0.0            # 70%以上が冬に降る場合
+    even: 140.0
+    season_share: 0.7
+  dry_summer_max_mm: 40.0       # mm。s の条件：夏の最少月がこれ未満、かつ冬の最多月の 1/3 未満
+  dry_summer_ratio: 3.0
+  dry_winter_ratio: 10.0        # w の条件：冬の最少月が夏の最多月の 1/10 未満
+  tropical_wet_mm: 60.0         # mm。Af の条件：最少月がこれ以上
+  monsoon_coef: 25.0            # Am の条件：年降水量 ≥ 25 × (100 − 最少月の降水量)
+  monsoon_offset_mm: 100.0

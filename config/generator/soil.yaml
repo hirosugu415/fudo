@@ -1,0 +1,31 @@
+# 土壌と用水（SPEC 第4.4章）。フェーズ2で追加。世界の生成の一部（world_id に入る）。
+
+fertility:
+  # 肥沃度（0〜1）= 岩石（または沖積層）の基準 × 傾斜による減り方 × (1 + ノイズ)、0〜1 に収める
+  rock:                       # 岩石ごとの基準。名前は geology.yaml の rocks に合わせる。推定の相対値
+    granite: 0.4              # 花崗岩の風化土（真砂土）はやせている
+    sedimentary: 0.6
+    limestone: 0.55
+    volcanic: 0.5             # 火山灰土はリン酸が乏しく、近世の稲作では扱いにくかった（推定）
+  alluvium: 1.0               # 川が運んだ土（沖積土）は最も肥沃。推定
+  slope_scale: 0.35           # 無次元。勾配がこの値のとき、肥沃度が e 分の1 になる（急斜面は表土が薄い）。推定
+  noise_amplitude: 0.15       # 無次元。場所ごとのばらつき
+  noise_scale_km: 2.0         # km
+  octaves: 2
+  persistence: 0.5
+
+drainage:
+  # 水はけ（0〜1）= 岩石（または沖積層）の基準 + slope_gain × 勾配、0〜1 に収める。低いと湿田向き、高いと畑向き
+  rock:
+    granite: 0.8
+    sedimentary: 0.5
+    limestone: 0.9
+    volcanic: 0.7
+  alluvium: 0.2               # 低地の沖積土は水はけが悪い（湿田）。推定
+  slope_gain: 2.0             # 1/勾配。推定
+
+irrigation:
+  # 用水を引けるか（0〜1）。渇水期の流量が min_low_flow_m3s 以上の川から、重力で引ける範囲
+  min_low_flow_m3s: 0.05      # m³/s。推定：近世の小規模な堰・用水路の取水量（数十 L/s〜）
+  max_distance_km: 1.2        # km。用水路を引ける距離の目安（距離が増えるほど 0 に近づく）。推定
+  max_head_m: 6.0             # m。水源の川より高いところへは引けない。この高さまで、川の勾配を使って引ける。推定

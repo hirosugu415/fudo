@@ -1,0 +1,46 @@
+# 移動と運搬（SPEC 6.1 の明治時点の移動手段。フェーズ2では、経路ごとに最も安い手段を使う。ユーザー合意）。
+# 移動のコストは「1マスを横切る時間 [時間]」（人）と「1kg を1マス運ぶ費用 [円/kg]」（荷物）で表す。
+
+walk:
+  # 歩く速さ [km/h] = speed_max × exp(−slope_coef × |勾配 + slope_offset|)。根拠：Tobler (1993) のハイキング関数
+  speed_max_kmh: 6.0
+  slope_coef: 3.5
+  slope_offset: 0.05          # 往復で使うので、上り・下りの平均（|勾配| と |−勾配| の平均）をとる
+  offroad_speed_factor: 0.5   # 道のないところ（田の畦・森の中・草地）を歩く速さの、道の上に対する割合。道の状態 s のとき、速さは (この値 + (1 − この値) × s) 倍。
+                              # 推定：道のないところは道の半分ほどの速さ。これが小さいほど、人は既にある道に集まる（道がまとまる）
+  snow_ref_mm: 300.0          # mm（水換算）。年平均の積雪がこの値で、歩く速さが半分。推定
+
+porter:
+  label: 人が担ぐ・背負う
+  load_kg: 40.0               # kg。根拠：人が背負って運べる荷 30〜60kg
+
+cart:
+  label: 荷車
+  load_kg: 250.0              # kg。根拠：大八車の積載 200〜300kg（推定）
+  speed_factor: 0.8           # 歩く速さに対する倍率
+  min_road_level: 0.5         # 道の状態がこれ以上のところしか通れない
+  max_slope: 0.08             # 勾配がこれ以下のところしか通れない
+  cost_yen_per_hour: 0.02     # 円/時間。人の時間に加える荷車の費用。推定
+
+boat:
+  label: 舟
+  load_kg: 1500.0             # kg。根拠：川船（高瀬舟など）の積載 1〜3t（推定）
+  speed_kmh: 4.0              # km/h。上りと下りの平均。推定
+  crew: 2.0                   # 人。船頭の人数
+  min_discharge_m3s: 8.0      # m³/s。舟が通れる年平均流量。推定
+  max_slope: 0.003            # 川の勾配がこれ以下のところしか通れない。推定
+
+crossing:
+  # 川を渡るのにかかる時間 [時間] = wait_hours_per_log_q × ln(年平均流量 / ford_max_discharge)（流量がそれ以下なら0）
+  ford_max_discharge_m3s: 2.0 # m³/s。これ以下の川は歩いて渡れる
+  wait_hours_per_log_q: 0.4   # 時間。推定：大きな川ほど渡し舟を待ち、渡るのに時間がかかる
+
+roads:
+  # 道の状態（0〜1）は、年間の通行量に向かって毎年 adapt_rate の速さで近づく：目標 = 通行量 / (通行量 + half_traffic)
+  half_traffic_trips_per_year: 3000.0   # 人回/年。推定
+  adapt_rate_per_year: 0.2    # 1/年
+  visible_level: 0.15         # 表示・判定で「道」とみなす状態
+  update_interval_months: 12  # か月。経路計算と道の更新の間隔（SPEC 第2章：重い処理は一定間隔で）
+  shop_cutoff_hours: 10.0     # 時間。店から、これより遠いところへは買い物に来ない（経路の探索を打ち切る）
+  market_block_cells: 5       # マス。この四方（500m 四方）の中の店は同じ市場とみなし、経路を市場ごとに1回だけ計算する（計算を軽くするための近似）
+  sell_trip_kg: 40.0          # kg。米を売りに行く1回の量（人の往復の回数の換算）

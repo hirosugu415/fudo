@@ -1,0 +1,52 @@
+# 鉱物資源（SPEC 第4.4章）。種類は deposits に追加できる。
+#   host_rocks          ：鉱床ができやすい岩石（geology.yaml の name）
+#   contact_with        ：これらの岩石との境界の近くにだけできる（接触交代鉱床など）。空なら制限なし
+#   contact_distance_km ：境界からの距離の上限
+#   density_per_100km2  ：鉱床の中心の数の平均（候補の面積 100 km² あたり、ポアソン分布）
+#   radius_km           ：鉱床の広がりの半径（対数正規分布）
+#   reserve_t           ：埋蔵量 [t]（対数正規分布）
+#   grade               ：品位（石炭は発熱量の相対値、鉱石は金属の含有率）。正規分布、[min, max] で切る
+#   depth_m             ：鉱床の上端の深さ [m]（一様分布）。上に沖積層があれば、その厚さを足す
+# 根拠：いずれも日本の明治期の中小規模の鉱山を念頭に置いた推定値
+
+deposits:
+  - name: coal
+    label: 石炭
+    host_rocks: [sedimentary]
+    contact_with: []
+    contact_distance_km: 0.0
+    density_per_100km2: 0.5
+    radius_km: {median: 1.5, log_sd: 0.4}
+    reserve_t: {median: 5.0e6, log_sd: 1.0}
+    grade: {mean: 0.6, sd: 0.15, min: 0.2, max: 1.0}
+    depth_m: {min: 0.0, max: 400.0}
+  - name: iron_ore
+    label: 鉄鉱石
+    host_rocks: [sedimentary, limestone, volcanic]
+    contact_with: [granite]
+    contact_distance_km: 0.6
+    density_per_100km2: 1.0
+    radius_km: {median: 0.4, log_sd: 0.4}
+    reserve_t: {median: 1.0e6, log_sd: 1.0}
+    grade: {mean: 0.45, sd: 0.1, min: 0.2, max: 0.68}
+    depth_m: {min: 0.0, max: 200.0}
+  - name: copper
+    label: 銅
+    host_rocks: [volcanic, sedimentary]
+    contact_with: [granite]
+    contact_distance_km: 1.0
+    density_per_100km2: 1.0
+    radius_km: {median: 0.4, log_sd: 0.4}
+    reserve_t: {median: 2.0e6, log_sd: 1.2}
+    grade: {mean: 0.015, sd: 0.007, min: 0.003, max: 0.05}
+    depth_m: {min: 0.0, max: 300.0}
+  - name: limestone
+    label: 石灰石
+    host_rocks: [limestone]
+    contact_with: []
+    contact_distance_km: 0.0
+    density_per_100km2: 6.0
+    radius_km: {median: 0.8, log_sd: 0.3}
+    reserve_t: {median: 5.0e7, log_sd: 0.8}
+    grade: {mean: 0.9, sd: 0.05, min: 0.7, max: 0.99}
+    depth_m: {min: 0.0, max: 30.0}
