@@ -36,6 +36,7 @@ BEHAVIOR_FILES = (
     "commerce",
     "transport",
     "land",
+    "mining",
 )
 
 

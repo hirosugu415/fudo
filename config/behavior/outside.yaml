@@ -1,16 +1,82 @@
-# 外部世界の仮の値（フェーズ3で外部世界モデルに置き換える。ユーザー合意）。
-# 金額の単位「円」は明治初期の円。外部の大都市がつながる地点で、この価格で取引できる。
+# 外部世界モデル（SPEC 第8章）。フィールドの外を、年ごとの集計値で表す。
+# - フィールドは外の経済に比べて十分小さいので、フィールドの出来事は外部世界に影響しない（価格を受け入れるだけ。ユーザー合意 2026-10-28）
+# - 景気の乱数は世界シードの名前付きストリームから、origin_year を起点に毎年1個引く。開始年やウォームアップの長さを変えても、同じ年の値は同じ
+# - 金額は実質（明治初期の円）。物価全体の上昇（インフレ）は扱わない（ユーザー合意）
+# - 下の「基準の値」は anchor_year の値。それ以外の年は、生産性・景気・需給で動く
 
-prices:
-  rice_yen_per_kg: 0.04       # 円/kg（玄米）。根拠：明治初期の米価は1石（約150kg）あたり約5〜7円（推定）
-  fish_yen_per_kg: 0.05       # 円/kg。推定：同じ重さの米よりやや高い
-wage_yen_per_day: 0.15        # 円/日。外部の日雇い賃金。根拠：明治初期の日雇い・大工の日当 0.1〜0.3円（推定）
+origin_year: 1700             # 年。系列を計算し始める年（気候のゆらぎと同じ起点）
+anchor_year: 1870             # 年。下の基準の値（賃金・価格・大都市の人口）がこの年の値になる。明治初期
+
+productivity:
+  # 外部の1人あたりの産出量の伸び（技術はフェーズ5。それまでの仮のトレンド。ユーザー合意）
+  growth_before_anchor_per_year: 0.003   # 1/年。推定：近世の1人あたり産出の伸びはごく小さい（0.1〜0.3%）
+  growth_after_anchor_per_year: 0.015    # 1/年。根拠：明治〜戦前の日本の1人あたり実質GDPの伸び 1.5〜2%（Maddison の推計）
+
+business_cycle:
+  # 景気 x（産出のトレンドからの乖離の割合）は AR(1)：x_t = persistence × x_{t-1} + ε。定常の標準偏差が世界の business_cycle_amplitude になるように ε の大きさを決める
+  persistence: 0.6            # 無次元。推定：年次の産出ギャップの自己相関 0.5〜0.7
+
+population:
+  # 大都市の人口の伸び = 世界の population_growth_per_year × exp(−max(生産性 − 1, 0) / transition_productivity)
+  # 所得が上がるほど伸びが鈍る（人口転換。ユーザー合意：質問3の代案）。生産性は anchor_year で 1
+  transition_productivity: 5.0   # 無次元。生産性が基準の1+この値倍で、伸びが e 分の1。推定：日本の人口の伸びは1人あたり所得が明治初期の約6倍（1960年代）で大きく鈍り、約20倍で止まった
+
+wage_yen_per_day: 0.15        # 円/日。基準の年の外部の日雇い賃金。生産性 ×（1 + 景気）に比例する。根拠：明治初期の日雇い・大工の日当 0.1〜0.3円（推定）
 work_hours_per_day: 10.0      # 時間/日。移動時間をお金に換算するとき、時間の価値 = 日当 ÷ この値
-interest_rate_per_year: 0.08  # 1/年。地価 = 年間の地代 ÷ 金利。根拠：明治初期の金利 8〜12%（推定）
+work_days_per_year: 250.0     # 日/年。推定：明治期の農閑期・休日を除いた働く日数
+
+interest:
+  base_per_year: 0.08         # 1/年。根拠：明治初期の金利 8〜12%（推定）
+  cycle_sensitivity: 0.3      # 無次元。金利 = base × (1 + この値 × 景気 / 景気の大きさ)。景気が標準偏差1つ分よいと金利が3割上がる（好況で資金の需要が増える）。推定
+  min_per_year: 0.02          # 1/年。下限（数値上の値）
+
+goods:
+  # 品物ごとの価格。需要と供給の釣り合いで決まる（ユーザー合意：質問4）
+  #   需要 D = (外部の人口 / 基準の年の人口) × (生産性 × (1 + cycle_elasticity × 景気))^income_elasticity
+  #   供給の能力 K は、値段が基準より高い年に増え、低い年に減る（遅れて反応する投資）：K' = K × exp(supply_response × ln(p / base))
+  #   価格 p = base × (D / K)^(1 / demand_elasticity)
+  #   長い目で見ると K は D に追いつくので価格は base に戻るが、需要の伸びと供給の遅れで高騰・暴落が起きる
+  # base_yen_per_t：基準の年の外部の価格 [円/t]。鉱物の値段は鉱石ではなく、mining.yaml の value の基準となる値
+  rice:
+    base_yen_per_t: 40.0      # 円/t。根拠：明治初期の米価 1石（約150kg）あたり約5〜7円（推定）
+    income_elasticity: 0.3    # 推定：食料の所得弾力性は小さい
+    cycle_elasticity: 0.0
+    demand_elasticity: 0.3    # 推定：主食の価格弾力性 0.1〜0.3
+    supply_response: 0.3      # 1/年。推定
+  fish:
+    base_yen_per_t: 50.0      # 円/t。推定：同じ重さの米よりやや高い
+    income_elasticity: 0.6
+    cycle_elasticity: 0.0
+    demand_elasticity: 0.5
+    supply_response: 0.3
+  coal:
+    base_yen_per_t: 2.5       # 円/t（発熱量の相対値 reference_grade の石炭）。推定：明治10年代の山元の石炭価格 2〜3円/t
+    income_elasticity: 1.5    # 推定：工業化の時期のエネルギー需要は所得より速く伸びる
+    cycle_elasticity: 2.0     # 推定：鉱物の需要は景気に強く反応する
+    demand_elasticity: 0.4    # 推定：鉱物の短期の価格弾力性 0.2〜0.5
+    supply_response: 0.25
+  iron_ore:
+    base_yen_per_t: 3.0       # 円/t（鉄の含有率 reference_grade の鉱石）。推定
+    income_elasticity: 1.5
+    cycle_elasticity: 2.0
+    demand_elasticity: 0.4
+    supply_response: 0.2
+  copper:
+    base_yen_per_t: 330.0     # 円/t（銅の地金）。根拠：明治初期の銅価 100斤（60kg）あたり約20円（推定）
+    income_elasticity: 1.3
+    cycle_elasticity: 2.0
+    demand_elasticity: 0.4
+    supply_response: 0.2
+  limestone:
+    base_yen_per_t: 0.8       # 円/t。推定：石灰の原料としての山元の値段
+    income_elasticity: 1.5    # 推定：セメント・製鉄の需要は工業化とともに伸びる
+    cycle_elasticity: 2.0
+    demand_elasticity: 0.4
+    supply_response: 0.3
 
 outside_household:
   # 外にとどまる世帯の暮らし（入植するか、出ていくかの比較の基準）
-  income_yen_per_year: 45.0   # 円/年。推定：日雇い 0.15円 × 250日 × 働き手1.2人
+  workers: 1.2                # 人。外で働く世帯の働き手の数。推定
   money_yen: 10.0             # 円。移住してくる世帯が持ってくる蓄え。推定：数か月分の暮らし
 
 migration:

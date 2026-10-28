@@ -1,13 +1,14 @@
 """数値計算の中核（Numba）。
 
 決定性のため parallel=False、fastmath=False。計算順序は配列の順序で固定する。
+例外は dijkstra_many だけ：出発点ごとに独立した計算を並列にする（出発点どうしで値を足し合わせないので、結果は並列でも同じ）。
 配列はすべて平らにしたセル番号（row * nx + col）で扱う。
 """
 
 from __future__ import annotations
 
 import numpy as np
-from numba import njit
+from numba import njit, prange
 
 from .grid import NEIGH_DC, NEIGH_DIST, NEIGH_DR
 
@@ -380,6 +381,23 @@ def dijkstra(cost, nx, ny, source, cutoff):
         if dist[i] > cutoff:
             dist[i] = np.inf
             pred[i] = -1
+    return dist, pred
+
+
+@njit(cache=True, parallel=True)
+def dijkstra_many(cost, nx, ny, sources, cutoff):
+    """複数の出発点 sources からの dijkstra を並列に計算する。戻り値：(dist[k, セル], pred[k, セル])。
+
+    出発点ごとの計算は互いに独立で、書き込む行も別なので、並列でも結果は dijkstra を1つずつ呼んだのと同じ。
+    """
+    K = sources.size
+    n = nx * ny
+    dist = np.empty((K, n), dtype=np.float64)
+    pred = np.empty((K, n), dtype=np.int32)
+    for k in prange(K):
+        d, p = dijkstra(cost, nx, ny, sources[k], cutoff)
+        dist[k] = d
+        pred[k] = p
     return dist, pred
 
 
@@ -900,3 +918,77 @@ def local_maxima(h, nx, ny, radius, valid):
                 break
         out[i] = ok
     return out
+
+
+# ---------------------------------------------------------------------------
+# 農家が田畑を手に入れる（society._acquire_land と同じ規則を、多くの農家について順にまとめて行う）
+# ---------------------------------------------------------------------------
+@njit(cache=True)
+def acquire_land_many(want, home, labor, have, area, pot, labor_per_ha, reclaim_py, crop, arable,
+                      use, owner, cultivator, reclaim_left, nx, ny, r, radius_km, dx, loss_per_km, reclaim_max, wild):
+    """want の順に、各農家 h が働き手 labor[h] で耕せる面積まで、家の近くの田畑を手に入れる。
+    優先順：持ち主のいない田畑 → 借りられる田畑 → 未開の土地の開墾（1年に reclaim_max ha まで）。
+    同じ種類の中では、見込みの収穫が多く家に近い順（同じなら窓の中の順番）。have[h] はその場で増やす。"""
+    w = 2 * r + 1
+    cells = np.empty(w * w, dtype=np.int64)
+    score = np.empty(w * w)
+    grp = np.empty(w * w, dtype=np.int64)
+    for q in range(want.size):
+        h = want[q]
+        L = labor[h]
+        if have[h] >= L:
+            continue
+        hr = home[h] // nx
+        hc = home[h] - hr * nx
+        m = 0
+        for rr in range(max(hr - r, 0), min(hr + r + 1, ny)):
+            for cc in range(max(hc - r, 0), min(hc + r + 1, nx)):
+                c = rr * nx + cc
+                d = np.hypot(rr - hr, cc - hc) * dx / 1000.0
+                if d > radius_km or area[c] <= 0.0:
+                    continue
+                g = -1
+                if use[c] > 0 and owner[c] < 0 and cultivator[c] < 0:
+                    g = 0
+                elif use[c] > 0 and owner[c] >= 0 and cultivator[c] < 0:
+                    g = 1
+                elif use[c] == wild and arable[c] and owner[c] < 0:
+                    g = 2
+                if g < 0:
+                    continue
+                cells[m] = c
+                score[m] = pot[c] / (1.0 + loss_per_km * d)
+                grp[m] = g
+                m += 1
+        reclaimed = 0.0
+        done = False
+        for gi in range(3):
+            if done:
+                break
+            k = 0
+            idx = np.empty(m, dtype=np.int64)
+            key = np.empty(m)
+            for j in range(m):
+                if grp[j] == gi:
+                    idx[k] = j
+                    key[k] = -score[j]
+                    k += 1
+            order = np.argsort(key[:k], kind="mergesort")
+            for o in range(k):
+                c = cells[idx[order[o]]]
+                if have[h] >= L:
+                    done = True
+                    break
+                if cultivator[c] >= 0:
+                    continue
+                if gi == 0:
+                    owner[c] = h
+                elif gi == 2:
+                    if reclaimed >= reclaim_max:
+                        break
+                    owner[c] = h
+                    use[c] = crop[c]
+                    reclaim_left[c] = reclaim_py[c] * area[c]
+                    reclaimed += area[c]
+                cultivator[c] = h
+                have[h] += labor_per_ha[c] * area[c]

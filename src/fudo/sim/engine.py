@@ -27,6 +27,7 @@ from ..grid import Grid
 from ..io import store
 from ..nature.anomaly import make_series
 from ..nature.water import WaterModel, WaterState
+from ..society.economy import External
 from ..society.society import Society
 from ..world.generate import load_world, water_static_from
 
@@ -106,6 +107,7 @@ def run_simulation(
         "complete": False,
         "environment": store.environment_info(),
         "month_hashes": [],
+        "events": [],
     }
     store.write_json(rdir / "manifest.json", manifest)
 
@@ -120,7 +122,10 @@ def run_simulation(
     anomalies = make_series(world_seed, gen.climate.anomaly, from_index(end)[0])
     if first_year < anomalies.origin_year:
         raise ValueError("ウォームアップの開始年が、気候のゆらぎの起点より前です")
-    society = Society(arrays, info, grid, beh, gen, int(run_seed))
+    external = External(world_seed, info["external"], beh.outside, from_index(end)[0])
+    if first_year < external.origin:
+        raise ValueError("ウォームアップの開始年が、外部世界の系列の起点より前です")
+    society = Society(arrays, info, grid, beh, gen, int(run_seed), external)
 
     t0 = time.perf_counter()
     shape = (grid.ny, grid.nx)
@@ -133,6 +138,7 @@ def run_simulation(
             snap[f"stat_{name}"] = np.array(v)
         store.write_npz(rdir / "months" / f"{k:05d}.npz", snap)
         manifest["months_written"] = k + 1
+        manifest["events"] = society.mining.events   # 鉱山の開業・閉山・出資者（年代記の素データ。フェーズ8で文章にする）
         manifest["month_hashes"].append(store.arrays_hash(snap))
         # マニフェストは、そのスナップショットを書き終えてから更新する（ビューアはここまでしか進めない）
         store.write_json(rdir / "manifest.json", manifest)
@@ -141,7 +147,7 @@ def run_simulation(
     # ---- ウォームアップ（1年ごと）----
     for year in warm_years:
         dT, pf = anomalies.at(year)
-        society.step_year(dT, pf)
+        society.step_year(year, dT, pf)
         society_snap = society.snapshot()
         snap = {
             "discharge_m3s": (mean_q * pf).astype(np.float32),
@@ -161,7 +167,7 @@ def run_simulation(
         year, month = from_index(idx)
         dT, pf = anomalies.at(year)
         q, wstats = model.step(state, month, float(days_in_month(year, month)), dT, pf)
-        society.step_month(month, dT, pf)
+        society.step_month(year, month, dT, pf)
         society_snap = society.snapshot()
         values = {
             "snow_mm": state.snow, "discharge_m3s": q, "groundwater_mm": state.gw, "soil_mm": state.soil,

@@ -48,9 +48,12 @@ async function fetchOptional(url, Type) {
   return new Type(await r.arrayBuffer());
 }
 
-// 土地利用の色（0 未開、1 水田、2 畑、3 集落、4 商業地）
-const USE_COLORS = { 1: [0.55, 0.75, 0.35], 2: [0.72, 0.62, 0.40], 3: [0.62, 0.58, 0.55], 4: [0.80, 0.35, 0.30] };
-const USE_LABELS = ["未開", "水田", "畑", "集落", "商業地"];
+// 土地利用の色（0 未開、1 水田、2 畑、3 集落、4 商業地、5 鉱山）
+const USE_COLORS = { 1: [0.55, 0.75, 0.35], 2: [0.72, 0.62, 0.40], 3: [0.62, 0.58, 0.55], 4: [0.80, 0.35, 0.30], 5: [0.30, 0.27, 0.30] };
+const USE_LABELS = ["未開", "水田", "畑", "集落", "商業地", "鉱山"];
+const MINE_LABELS = ["", "石炭", "鉄鉱石", "銅", "石灰石"];
+// 建物の色（凡例は index.html）。優先順：鉱山 > 店 > 宿 > 鉱山で働く人の家 > 家
+const BUILDING_COLORS = { mine: 0x333333, shop: 0xe05a4a, inn: 0xf0a030, worker: 0x7fa7d9, house: 0xe8e0d0 };
 
 function landColor(h, alluvial) {
   // 標高で緑→茶→灰→白。沖積層は黄緑寄り。
@@ -197,23 +200,32 @@ function updateRoads(road) {
   scene.add(world.roads);
 }
 
-// 集落：世帯数に比例した高さの箱
-function updateHouses(households) {
+// 集落：世帯数に比例した高さの箱。マスの中身で色を分ける（鉱山の坑口は世帯がいなくても一定の高さの黒い箱）
+function updateHouses(households, sd, ss, inn, workers, mines) {
   if (world.houses) { scene.remove(world.houses); world.houses.geometry.dispose(); world.houses.material.dispose(); world.houses = null; }
   if (!households) return;
   const cells = [];
-  for (let i = 0; i < households.length; i++) if (households[i] > 0) cells.push(i);
+  for (let i = 0; i < households.length; i++) if (households[i] > 0 || (mines && mines[i] > 0)) cells.push(i);
   if (cells.length === 0) return;
   const geo = new THREE.BoxGeometry(world.dxKm * 0.7, 1, world.dxKm * 0.7);
   geo.translate(0, 0.5, 0);
-  const mesh = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: 0xd8d0c0 }), cells.length);
+  const mesh = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: 0xffffff }), cells.length);
   const p = world.mesh.geometry.attributes.position.array;
   const m = new THREE.Matrix4();
+  const col = new THREE.Color();
   cells.forEach((i, k) => {
-    const hgt = (households[i] * cfg.house_height_m_per_household / 1000) * cfg.vertical_exaggeration;
+    const isMine = mines && mines[i] > 0;
+    const n = isMine ? Math.max(households[i], 5) : households[i];
+    const hgt = (n * cfg.house_height_m_per_household / 1000) * cfg.vertical_exaggeration;
     m.makeScale(1, Math.max(hgt, 0.001), 1);
     m.setPosition(p[3 * i], p[3 * i + 1], p[3 * i + 2]);
     mesh.setMatrixAt(k, m);
+    let kind = "house";
+    if (isMine) kind = "mine";
+    else if (sd && ss && (sd[i] + ss[i]) > 0) kind = "shop";
+    else if (inn && inn[i] > 0) kind = "inn";
+    else if (workers && workers[i] > 0) kind = "worker";
+    mesh.setColorAt(k, col.setHex(BUILDING_COLORS[kind]));
   });
   world.houses = mesh;
   scene.add(mesh);
@@ -303,16 +315,22 @@ async function showMonth(k) {
   try {
     const base = `/api/runs/${run.id}/month/${k}`;
     const f = (name) => fetchOptional(`${base}/field/${name}`, Float32Array);
-    const [q, snow, landUse, road, households, pop, price, sd, ss, inn, meta] = await Promise.all([
+    const [q, snow, landUse, road, households, pop, price, sd, ss, inn, workers, mines, meta] = await Promise.all([
       f("discharge_m3s"), f("snow_mm"), f("land_use"), f("road"), f("households"), f("population"),
-      f("land_price"), f("shops_daily"), f("shops_specialty"), f("inns"), (await fetch(base + "/meta")).json(),
+      f("land_price"), f("shops_daily"), f("shops_specialty"), f("inns"), f("workers"), f("mines"),
+      (await fetch(base + "/meta")).json(),
     ]);
     if (q) updateRivers(q);
-    updateColors(snow, landUse); updateRoads(road); updateHouses(households);
-    run.cur = { landUse, households, pop, price, road, sd, ss, inn };
+    updateColors(snow, landUse); updateRoads(road); updateHouses(households, sd, ss, inn, workers, mines);
+    run.cur = { landUse, households, pop, price, road, sd, ss, inn, workers, mines };
     $("slider").value = String(k);
-    const stat = meta.stat_population !== undefined
-      ? `　人口 ${Math.round(meta.stat_population)}・世帯 ${Math.round(meta.stat_households)}・店 ${Math.round(meta.stat_shops)}` : "";
+    let stat = meta.stat_population !== undefined
+      ? `\n全体：人口 ${Math.round(meta.stat_population)}・世帯 ${Math.round(meta.stat_households)}・店 ${Math.round(meta.stat_shops)}` : "";
+    if (meta.stat_mines !== undefined) {
+      stat += `・鉱山 ${Math.round(meta.stat_mines)}（働く世帯 ${Math.round(meta.stat_wage_households)}）` +
+        `\n外部：日当 ${meta.stat_ext_wage_yen_per_day.toFixed(2)}円・金利 ${(100 * meta.stat_interest).toFixed(1)}%` +
+        `・石炭 ${meta.stat_price_coal.toFixed(2)}円/t・米 ${meta.stat_price_rice.toFixed(0)}円/t`;
+    }
     $("time").textContent = `${ymLabel(k)}　気温の平年差 ${meta.temperature_anomaly_c.toFixed(2)}℃・降水 ×${meta.precip_factor.toFixed(2)}${stat}`;
   } finally { loading = false; }
 }
@@ -351,7 +369,9 @@ renderer.domElement.addEventListener("click", (ev) => {
   if (cur && cur.landUse) {
     txt += `\n用途 ${USE_LABELS[cur.landUse[i]]}\n人口 ${cur.pop[i]}・世帯 ${cur.households[i]}` +
       `\n地価 ${cur.price[i].toFixed(1)} 円/ha\n道 ${cur.road[i].toFixed(2)}` +
-      `\n店 日用品 ${cur.sd[i]}・専門 ${cur.ss[i]}・宿 ${cur.inn[i]}`;
+      `\nこのマスの店：日用品 ${cur.sd[i]}・専門 ${cur.ss[i]}・宿 ${cur.inn[i]}` +
+      (cur.workers ? `\n鉱山で働く世帯 ${cur.workers[i]}` : "") +
+      (cur.mines && cur.mines[i] > 0 ? `\n${MINE_LABELS[cur.mines[i]]}の鉱山の坑口` : "");
   }
   $("cell").textContent = txt;
 });

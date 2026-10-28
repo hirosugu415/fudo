@@ -9,4 +9,4 @@ output:
   # 毎月保存する格子の変数。月の気温・降水は「平年値 + その年のずれ」で再現できるので、ずれ（スカラー）だけを保存する。
   month_fields: [snow_mm, discharge_m3s, groundwater_mm, soil_mm]
   # 社会の格子の変数（ウォームアップ中も保存する）
-  society_fields: [population, households, land_use, road, land_price, shops_daily, shops_specialty, inns]
+  society_fields: [population, households, land_use, road, land_price, shops_daily, shops_specialty, inns, workers, mines]

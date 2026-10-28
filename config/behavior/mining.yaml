@@ -1,0 +1,74 @@
+# 鉱業（SPEC 9.2 の鉱業部門）と、鉱山に出資する投資家（SPEC 9.4）、鉱山の雇用。
+# 鉱山は上から置かない。投資家が「儲かる」と判断した鉱床にだけ会社が生まれる（SPEC 原則1）。
+# 1つの鉱床に会社は1社まで（鉱区の権利。ユーザー合意）。鉱床の場所は最初から知られている（ユーザー合意）。
+#
+# 生産：採掘量 Q [t/年] = output_t_per_worker × exp(−深さ / depth_scale_m) × L^labor_exponent × Lref^(1 − labor_exponent)
+#   L は働き手の数、Lref = ref_workers_per_mt × (埋蔵量 [百万t])^reserve_exponent（大きい鉱床ほど切羽を多く取れる。Taylor の規則の形）
+# 鉱石1tの値打ち = 外部の価格 × (品位 / reference_grade) × recovery
+# 1tあたりの手取り = 値打ち − opex_yen_per_t − 外部への運賃 × 運ぶ重さ（smelted_on_site なら 品位 × recovery、そうでなければ鉱石そのもの）
+# 深さ = 鉱床の上端の深さ + 掘った割合 × thickness_m（掘り進むほど深くなり、1人あたりの採掘量が減る）
+# 求人の手取り [円/年/働き手] = 日当 × 働く日数 × (1 − 往復の通勤時間 / 1日の働く時間)（通勤の分だけ働ける時間が減る）
+
+common:
+  labor_exponent: 0.5         # 無次元。推定：坑内の切羽の数には限りがあり、人を増やすと1人あたりの採掘量は早く減る
+  ref_workers_per_mt: 150.0   # 人。埋蔵量100万tの鉱床の基準の働き手の数。推定：明治期の中規模の炭鉱で数百人
+  reserve_exponent: 0.75      # 無次元。根拠：Taylor (1977) の規則（生産規模は埋蔵量の 0.75 乗に比例）
+  depth_scale_m: 250.0        # m。深さがこれだけ増えると1人あたりの採掘量が e 分の1。推定：排水・運搬・通気の手間
+  thickness_m: 100.0          # m。鉱床を掘り尽くすまでに深くなる量。推定
+  capital_yen_per_worker: 150.0   # 円/人。働き手1人あたりの設備（坑道・巻揚げ・ポンプ・道具）。推定
+  shaft_base_yen: 500.0       # 円。鉱山を開く固定の費用。推定
+  shaft_yen_per_m: 30.0       # 円/m。鉱床の深さまで掘る費用。推定：明治期の竪坑の開削費
+  depreciation_per_year: 0.05 # 1/年。設備の減価。推定
+  start_fraction: 0.3         # 無次元。開くときの規模は、利益が最大になる規模のこの割合。推定
+  max_expansion_per_year: 0.3 # 1/年。設備を1年に増やせる割合の上限。推定
+  exit_loss_years: 3          # 年。見込みの利益が赤字の年がこれだけ続いたら撤退する（SPEC 9.2）。推定
+  productivity_follows_outside: 1.0   # 無次元。1人あたりの採掘量に 外部の生産性^この値 を掛ける（外で生まれた採掘の技術が入ってくる）。
+                              # フェーズ5で研究・普及に置き換えるまでの仮の扱い（外部の生産性の仮のトレンドと同じ考え方）。0 なら技術は明治初期のまま。
+                              # 0 にすると、外部の賃金だけが上がり続けるので、鉱山は1900年ごろまでに採算割れでほぼ閉じる（2026-10-28 の試しの実行）
+
+minerals:
+  coal:
+    output_t_per_worker: 100.0   # t/人/年（深さ0）。根拠：明治期の日本の炭鉱の1人あたり出炭 100〜150 t/年（推定）
+    reference_grade: 0.6         # 外部の価格の基準になる品位（発熱量の相対値）
+    recovery: 1.0
+    smelted_on_site: false
+    opex_yen_per_t: 0.6          # 円/t。坑木・火薬・排水の費用。推定
+  iron_ore:
+    output_t_per_worker: 80.0
+    reference_grade: 0.5
+    recovery: 1.0
+    smelted_on_site: false
+    opex_yen_per_t: 0.8
+  copper:
+    output_t_per_worker: 60.0    # t（鉱石）/人/年。推定
+    reference_grade: 1.0         # 外部の価格は地金の値段
+    recovery: 0.7                # 製錬で取り出せる割合。推定
+    smelted_on_site: true        # 明治期の銅山は山元で製錬した。運ぶのは地金
+    opex_yen_per_t: 1.5          # 円/t（鉱石）。製錬の燃料を含む。推定
+  limestone:
+    output_t_per_worker: 300.0   # t/人/年。推定：露天の採石
+    reference_grade: 0.9
+    recovery: 1.0
+    smelted_on_site: false
+    opex_yen_per_t: 0.2
+
+labor:
+  # 会社ごとの賃金の調整（ユーザー合意：質問7）。働き手が目標に足りなければ上げ、足りていれば少し下げる
+  start_wage_premium: 0.2     # 無次元。開くときの日当 = 外部の日当 × (1 + この値)。推定：坑内労働の危険の分
+  adjust_up_per_year: 0.2     # 1/年。日当 × exp(この値 × 不足の割合)。推定（0.5 では賃金と雇う人数が上下に振れた）
+  layoff_excess_ratio: 1.2    # 雇っている働き手が目標のこの倍を超えたら、超えた分を解雇する。推定（目標の小さな上下で解雇を繰り返さないように）
+  adjust_down_per_year: 0.05  # 1/年。目標を満たしているとき、日当 × exp(−この値)
+  min_wage_ratio: 0.5         # 外部の日当に対する下限
+  commute_max_hours: 0.75     # 時間（片道）。これより遠い世帯は通わない（経路の探索を打ち切る）。推定：明治期の鉱夫は坑口の近くの納屋・社宅に住み、歩いて通える範囲は片道30〜45分
+                              # （1.5 では働く世帯が数km に散らばり、坑口の周りに集まらなかった。2026-10-28 の試しの実行）
+
+investors:
+  # 投資家は毎年、開かれていない鉱床の事業の見込みを比べ、出資するかをロジットで決める（ユーザー合意：出資だけ。融資はフェーズ4）
+  #   期待収益率 = (利益が最大の規模での年の利益 − 減価) / 設備 − 1 / 掘り尽くすまでの年数
+  #   出資する確率 = consider_prob × 1 / (1 + exp(−(期待収益率 − 金利 − リスクの上乗せ) / logit_scale))
+  consider_prob_per_year: 0.5 # 1/年。ある鉱床の事業が、ある年に投資家の検討にかかる確率。推定
+  risk_premium: 0.04          # 1/年。推定：明治期の鉱山の株式の配当利回りと金利の差
+  cycle_risk_per_amplitude: 1.0   # 景気の大きさ × 品物の景気の弾力性 × この値 を、リスクの上乗せに加える。推定
+  logit_scale: 0.03           # 1/年。推定
+  local_min_money_yen: 100.0  # 円。これ以上の蓄えのある世帯は、地元の投資家として出資できる（蓄えの余りの分）。推定
+  fund_per_capita_yen: 0.5    # 円/人。外部の大都市の、鉱山に回せる資金（人口1人あたり、生産性に比例）。推定

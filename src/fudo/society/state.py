@@ -9,6 +9,7 @@ OCC_NONE = -1     # 仕事がない（独立したばかり・店をやめた直
 OCC_FARM = 0      # 農業（自作・小作）
 OCC_FISH = 1      # 漁業
 OCC_SHOP = 2      # 商い（店の種類は shop_kind）
+OCC_WAGE = 3      # 雇われて働く（鉱山。勤め先は employer）
 
 # 店の種類
 SHOP_DAILY = 0
@@ -48,6 +49,7 @@ class Households:
         grow("income", (), np.float64, 0.0)
         grow("food_ratio", (), np.float64, 1.0)
         grow("loss_years", (), np.int16, 0)
+        grow("employer", (), np.int32, -1)
         self.cap = cap
 
     def add(self, cells: np.ndarray, ages: np.ndarray, money: np.ndarray) -> np.ndarray:
@@ -65,6 +67,7 @@ class Households:
         self.income[ids] = 0.0
         self.food_ratio[ids] = 1.0
         self.loss_years[ids] = 0
+        self.employer[ids] = -1
         self.n += k
         return ids
 
@@ -89,3 +92,4 @@ class Land:
         self.road = np.zeros(n, dtype=np.float64)          # 道の状態（0〜1）
         self.fish_stock = np.zeros(n, dtype=np.float64)    # 漁場の資源量 [t]
         self.land_price = np.zeros(n, dtype=np.float64)    # 地価 [円/ha]
+        self.mine = np.zeros(n, dtype=bool)                # 鉱山の坑口

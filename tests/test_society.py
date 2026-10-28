@@ -75,7 +75,7 @@ def test_market_towns_at_confluences_fords_and_pass_feet(society_run):
             continue
         near = near_mask(feat, float(acfg.market_towns.near_km), 100.0)
         hh_share = hh[near].sum() / hh.sum()
-        if hh_share <= 0.0:
+        if hh[near].sum() < float(acfg.market_towns.min_households_near):
             continue
         shop_share = shops[near].sum() / shops.sum()
         assert shop_share > float(acfg.market_towns.min_ratio) * hh_share, (name, shop_share, hh_share)

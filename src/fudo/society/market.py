@@ -101,3 +101,87 @@ def huff_marginal(times, n_shop, freight_frac, hh_count, spend_per_hh, trips, vo
             new_tot += np.exp(nv - m)
             out[j] += total_spend * np.exp(nv - m) / new_tot
     return out
+
+
+@njit(cache=True)
+def huff_base(times, n_shop, freight_frac, hh_count, spend_per_hh, trips, vot, share, alpha):
+    """各マスの「全部の場所の魅力の合計」を、最大値 vmax[c] と、exp(v − vmax) の合計 tot[c] の形で返す。
+    出店の見込みを何度も計算するとき、この合計を使い回し、店が増えた場所の分だけ差し替える（huff_add_shop）。"""
+    S, C = times.shape
+    vmax = np.full(C, -1.0e300)
+    tot = np.zeros(C)
+    v = np.empty(S)
+    for c in range(C):
+        sp = spend_per_hh[c]
+        if sp <= 0.0 or hh_count[c] <= 0.0:
+            continue
+        m = -1.0e300
+        for s in range(S):
+            t = times[s, c]
+            if n_shop[s] <= 0.0 or not np.isfinite(t):
+                v[s] = -1.0e300
+                continue
+            v[s] = -(2.0 * trips * t * vot + sp * freight_frac[s]) / (share * sp) + alpha * np.log(n_shop[s])
+            if v[s] > m:
+                m = v[s]
+        if m <= -1.0e299:
+            continue
+        acc = 0.0
+        for s in range(S):
+            if v[s] > -1.0e299:
+                acc += np.exp(v[s] - m)
+        vmax[c] = m
+        tot[c] = acc
+    return vmax, tot
+
+
+@njit(cache=True)
+def _site_value(times, n, freight_frac, sp, trips, vot, share, alpha, s, c):
+    t = times[s, c]
+    if n <= 0.0 or not np.isfinite(t):
+        return -1.0e300
+    return -(2.0 * trips * t * vot + sp * freight_frac[s]) / (share * sp) + alpha * np.log(n)
+
+
+@njit(cache=True)
+def huff_marginal_cached(times, n_shop, freight_frac, hh_count, spend_per_hh, trips, vot, share, alpha, vmax, tot, sites):
+    """huff_marginal と同じ値を、huff_base の合計を使って、場所の数に比例しない手間で求める。"""
+    S, C = times.shape
+    K = sites.size
+    out = np.zeros(K)
+    for c in range(C):
+        sp = spend_per_hh[c]
+        if sp <= 0.0 or hh_count[c] <= 0.0:
+            continue
+        total_spend = sp * hh_count[c]
+        for j in range(K):
+            s = sites[j]
+            if not np.isfinite(times[s, c]):
+                continue
+            nv = _site_value(times, n_shop[s] + 1.0, freight_frac, sp, trips, vot, share, alpha, s, c)
+            ov = _site_value(times, n_shop[s], freight_frac, sp, trips, vot, share, alpha, s, c)
+            m = nv if nv > vmax[c] else vmax[c]
+            new_tot = tot[c] * np.exp(vmax[c] - m) if vmax[c] > -1.0e299 else 0.0
+            if ov > -1.0e299:
+                new_tot -= np.exp(ov - m)
+            new_tot += np.exp(nv - m)
+            out[j] += total_spend * np.exp(nv - m) / new_tot
+    return out
+
+
+@njit(cache=True)
+def huff_add_shop(times, n_shop, freight_frac, hh_count, spend_per_hh, trips, vot, share, alpha, vmax, tot, site):
+    """場所 site の店が1軒増えたときに、huff_base の合計（vmax, tot）をその場で書き換える。n_shop は呼んだ側で増やす。"""
+    S, C = times.shape
+    for c in range(C):
+        sp = spend_per_hh[c]
+        if sp <= 0.0 or hh_count[c] <= 0.0 or not np.isfinite(times[site, c]):
+            continue
+        nv = _site_value(times, n_shop[site] + 1.0, freight_frac, sp, trips, vot, share, alpha, site, c)
+        ov = _site_value(times, n_shop[site], freight_frac, sp, trips, vot, share, alpha, site, c)
+        m = nv if nv > vmax[c] else vmax[c]
+        t = tot[c] * np.exp(vmax[c] - m) if vmax[c] > -1.0e299 else 0.0
+        if ov > -1.0e299:
+            t -= np.exp(ov - m)
+        tot[c] = t + np.exp(nv - m)
+        vmax[c] = m

@@ -93,3 +93,12 @@ def near_mask(mask: np.ndarray, km: float, dx: float) -> np.ndarray:
     ny, nx = mask.shape
     d = kernels.distance_from(mask.ravel(), nx, ny, dx).reshape(ny, nx)
     return d <= km * 1000.0
+
+
+def households_near(households: np.ndarray, cell: int, radius_km: float, dx_m: float) -> float:
+    """マス cell から半径 radius_km 以内の世帯数（鉱山町の大きさを測る）。"""
+    ny, nx = households.shape
+    r0, c0 = divmod(int(cell), nx)
+    rr, cc = np.mgrid[0:ny, 0:nx]
+    near = np.hypot(rr - r0, cc - c0) * dx_m / 1000.0 <= radius_km
+    return float(households[near].sum())

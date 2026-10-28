@@ -16,11 +16,14 @@ from .. import kernels
 from .. import rng as rngmod
 from ..grid import Grid
 from . import market
+from .economy import External
+from .firms import Mining
 from .state import (
     OCC_FARM,
     OCC_FISH,
     OCC_NONE,
     OCC_SHOP,
+    OCC_WAGE,
     SHOP_DAILY,
     SHOP_INN,
     SHOP_KINDS,
@@ -47,7 +50,7 @@ def box_sum(a2: np.ndarray, r: int) -> np.ndarray:
 
 
 class Society:
-    def __init__(self, arrays: dict, info: dict, grid: Grid, beh, gen, run_seed: int):
+    def __init__(self, arrays: dict, info: dict, grid: Grid, beh, gen, run_seed: int, external: External):
         self.b = beh
         self.grid = grid
         self.nx, self.ny, n = grid.nx, grid.ny, grid.n
@@ -88,6 +91,8 @@ class Society:
             self.labor_per_ha = np.where(better, float(c.labor_per_ha), self.labor_per_ha)
             self.reclaim_py = np.where(better, float(c.reclaim_person_years_per_ha), self.reclaim_py)
         self.irrigated = self.crop == USE_PADDY
+        # 家を建てられるマス：通れて、急な斜面でない（ユーザーの指摘）
+        self.res_ok = self.passable & (slope_deg <= float(beh.households.settlement.max_slope_deg))
         self.arable = self.pot > 0.0
 
         # ---- 洪水の起きやすさ ----
@@ -133,12 +138,17 @@ class Society:
         self.entry_options = None
         self.stats_year = self._empty_stats()
         self.rng = {name: rngmod.run_stream(run_seed, f"society.{name}")
-                    for name in ("demography", "formation", "migration", "review", "commerce")}
+                    for name in ("demography", "formation", "migration", "review", "commerce", "investors")}
 
-        o = beh.outside
-        self.p_rice_ext = float(o.prices.rice_yen_per_kg)
-        self.p_fish_ext = float(o.prices.fish_yen_per_kg)
-        self.vot = self.transport.vot
+        # 外部世界（年ごとの値は _external_update で取り込む）
+        self.external = external
+        self.external_cities = info["external"]["cities"]
+        self.mining = Mining(self, info, arrays, beh.mining, beh.outside)
+        self.ext = None
+        self.ext_year = None
+        self.year = 0
+        self.month = 0
+        self._external_update(int(beh.outside.anchor_year))
         self.p_rice = np.full(n, self.p_rice_ext)
         self.p_fish = np.full(n, self.p_fish_ext)
         self.freight_to_conn = np.full(n, np.inf)
@@ -176,7 +186,7 @@ class Society:
         st = self.b.households.settlement
         shops = self._shop_counts().sum(axis=0)
         used = res_count * float(st.residential_area_ha) + shops * float(self.b.commerce.land_per_shop_ha)
-        return np.clip(self.area_ha - used, 0.0, None)
+        return np.where(self.land.mine, 0.0, np.clip(self.area_ha - used, 0.0, None))
 
     def _shop_counts(self) -> np.ndarray:
         n = self.hh.n
@@ -232,6 +242,22 @@ class Society:
         self.land.owner[owned] = np.where((tenants >= 0) & (tenants != h), tenants, -1)
         self.land.cultivator[self.land.cultivator == h] = -1
 
+    def _external_update(self, year: int) -> None:
+        """外部世界の今年の値（価格・賃金・金利・大都市の人口）を取り込む。"""
+        if self.ext_year == year:
+            return
+        e = self.external.at(year)
+        self.ext = e
+        self.ext_year = year
+        self.prices = e.prices
+        self.p_rice_ext = e.prices["rice"] / 1000.0
+        self.p_fish_ext = e.prices["fish"] / 1000.0
+        self.interest = e.interest
+        self.conn_pop = e.city_pop
+        self.vot = e.wage_yen_per_day / float(self.b.outside.work_hours_per_day)
+        self.transport.vot = self.vot
+        self.mining.productivity = e.productivity
+
     # ------------------------------------------------------------------
     # 交通：経路・価格・通行量・道
     # ------------------------------------------------------------------
@@ -254,14 +280,18 @@ class Society:
         cut = float(tcfg.roads.shop_cutoff_hours)
         shops = self._shop_counts()
         mshops = self._market_shops(shops)
-        for c in np.flatnonzero(mshops.sum(axis=0) > 0):
-            if int(c) not in self.trees:
-                self.trees[int(c)] = T.person_tree(int(c), cut)
         self.cand_sites = self._candidate_sites(shops)
-        for c in self.cand_sites:
-            if int(c) not in self.trees:
-                self.trees[int(c)] = T.person_tree(int(c), cut)
+        # 市場と出店の候補地からの経路は、まとめて並列に計算する（出発点ごとに独立なので結果は同じ。速さのため）
+        srcs = []
+        for c in list(np.flatnonzero(mshops.sum(axis=0) > 0)) + list(self.cand_sites):
+            if int(c) not in self.trees and int(c) not in srcs:
+                srcs.append(int(c))
+        if srcs:
+            dist, pred = T.person_trees(np.array(srcs, dtype=np.int64), cut)
+            for k, c in enumerate(srcs):
+                self.trees[c] = (dist[k], pred[k])
         self._travelers()
+        self.mining.refresh_commute(self)
         self._prices(mshops)
         self._access(mshops)
         self.months_since_transport = 0
@@ -276,7 +306,7 @@ class Society:
         score = np.log1p(near) + np.log1p(self.last_traffic if hasattr(self, "last_traffic") else 0.0)
         has_market = np.zeros(self.block.max() + 1, dtype=bool)
         has_market[self.block[shops.sum(axis=0) > 0]] = True
-        score = np.where(self.passable & ~has_market[self.block] & (near > 0), score, -np.inf)
+        score = np.where(self.res_ok & ~self.land.mine & ~has_market[self.block] & (near > 0), score, -np.inf)
         order = np.argsort(-score, kind="stable")
         picked = []
         sp = int(cc.min_site_spacing_cells)
@@ -366,6 +396,8 @@ class Society:
         # 旅人
         for path, travelers in self.traveler_paths:
             tr[path] += travelers
+        # 鉱石の運搬
+        self.mining.ore_traffic(self, tr)
         self.last_traffic = tr
         return tr
 
@@ -423,12 +455,15 @@ class Society:
         # 店の利益（前の年の支出から）
         shop_profit = self._shop_profits()
 
+        # 鉱山：1年分の採掘と収支。世帯には賃金・坑口の地代・配当が入る
+        wage_in = self.mining.accounting(self, L)
+
         # 収支
         p = self.p_rice[hh.cell[:n_h]]
         need = float(f.food_need_kg_per_person_year) * hh.members()
         own_food = np.minimum(prod, need)
         sold = np.maximum(prod - need, 0.0)
-        money_in = sold * p + rent_recv_kg * p + fish_kg * self.p_fish[hh.cell[:n_h]] + shop_profit
+        money_in = sold * p + rent_recv_kg * p + fish_kg * self.p_fish[hh.cell[:n_h]] + shop_profit + wage_in
         buy_kg = need - own_food
         cost = buy_kg * p
         rent_paid = self.land.res_rent[hh.cell[:n_h]]
@@ -586,7 +621,7 @@ class Society:
         """店をやめて、今の場所で農業か漁業をした場合の見込みの所得。"""
         maps = self._opportunity_maps()
         L = self._labor(ids)
-        y_farm, y_fish = self._expected_income(ids, self.hh.cell[ids], L, maps)
+        y_farm, y_fish, _ = self._expected_income(ids, self.hh.cell[ids], L, maps)
         return np.maximum(y_farm, y_fish)
 
     def _commerce_exit(self) -> None:
@@ -648,6 +683,7 @@ class Society:
             hh.cell[h] = site
             hh.occ[h] = OCC_SHOP
             hh.shop_kind[h] = kind
+            hh.employer[h] = -1
             hh.loss_years[h] = 0
             self._release(h, None)
             shops[kind, site] += 1
@@ -657,7 +693,13 @@ class Society:
                 v = self._inn_entry_value(site, shops)
             else:
                 setup = self.entry_setups[kind]
-                setup["n"][setup["sites"].index(site)] += 1.0
+                i = setup["sites"].index(site)
+                g = setup["g"]
+                # 各マスの魅力の合計を、増えた店の分だけ書き換えてから、店の数を増やす（全部をやり直さない）
+                market.huff_add_shop(setup["times"], setup["n"], setup["frac"], setup["cnt"], setup["per"],
+                                     float(g.trips_per_year), self.vot, float(g.logit_share), float(g.agglomeration),
+                                     setup["vmax"], setup["tot"], i)
+                setup["n"][i] += 1.0
                 v = float(self._goods_entry_values(kind, setup, [site])[0])
             options = [o for o in options if not (o[0] == kind and o[1] == site)]
             options.append((kind, site, v))
@@ -668,8 +710,9 @@ class Society:
         g = setup["g"]
         idx = np.array([setup["sites"].index(s) for s in sites], dtype=np.int64)
         ok = np.array([s in self.trees for s in sites])
-        rev = market.huff_marginal(setup["times"], setup["n"], setup["frac"], setup["cnt"], setup["per"],
-                                   float(g.trips_per_year), self.vot, float(g.logit_share), float(g.agglomeration), idx)
+        rev = market.huff_marginal_cached(setup["times"], setup["n"], setup["frac"], setup["cnt"], setup["per"],
+                                          float(g.trips_per_year), self.vot, float(g.logit_share), float(g.agglomeration),
+                                          setup["vmax"], setup["tot"], idx)
         val = float(g.margin) * rev / (setup["n"][idx] + 1.0) - float(g.fixed_cost_yen_per_year)
         return np.where(ok, val, -np.inf)
 
@@ -686,6 +729,11 @@ class Society:
         sites = sorted(set(int(c) for c in np.flatnonzero(mshops.sum(axis=0) > 0)) | set(int(c) for c in self.cand_sites))
         sites = [s for s in sites if res[s] < self.cap_hh]
         self.entry_setups = {k: self._huff_setup(SHOP_KINDS[k], mshops, sites) for k in (SHOP_DAILY, SHOP_SPECIALTY)}
+        for setup in self.entry_setups.values():
+            g = setup["g"]
+            setup["vmax"], setup["tot"] = market.huff_base(
+                setup["times"], setup["n"], setup["frac"], setup["cnt"], setup["per"],
+                float(g.trips_per_year), self.vot, float(g.logit_share), float(g.agglomeration))
         opts = []
         vals = {k: self._goods_entry_values(k, self.entry_setups[k], sites) for k in (SHOP_DAILY, SHOP_SPECIALTY)}
         for i, site in enumerate(sites):
@@ -725,6 +773,9 @@ class Society:
         social = box_sum(res.reshape(sh).astype(np.float64), self.r_social).ravel()
         maps = {"A": A, "yield": yield_per_ha, "labor": labor_per_ha, "fish": fish_per_adult,
                 "social": social, "res": res, "area": area}
+        m = self.mining
+        maps["vacancy"] = m.target - m.employed(self)
+        maps["job"], maps["job_firm"] = m.job_maps(self, maps["vacancy"])
         maps["far_cdf"] = self._far_cdf(maps)
         return maps
 
@@ -738,14 +789,18 @@ class Society:
         y_farm = np.minimum(kg, need) * self.p_rice_ext + np.maximum(kg - need, 0.0) * p
         fish = maps["fish"][cells] * L
         y_fish = fish * self.p_fish[cells] + 0.0
+        job = maps["job"][cells]
+        ok = np.isfinite(job)
+        y_job = np.where(ok, np.where(ok, job, 0.0) * L, -np.inf)
         rent = self.land.res_rent[cells]
-        return y_farm - rent, y_fish - rent
+        return y_farm - rent, y_fish - rent, y_job - rent
 
     def _utility(self, ids, cells, L, maps, current, income_now=None, move_cost=True):
         u = self.b.households.utility
-        y_farm, y_fish = self._expected_income(ids, cells, L, maps)
-        y = np.maximum(y_farm, y_fish)
+        y_farm, y_fish, y_job = self._expected_income(ids, cells, L, maps)
+        y = np.maximum(np.maximum(y_farm, y_fish), y_job)
         occ = np.where(y_fish > y_farm, OCC_FISH, OCC_FARM)
+        occ = np.where(y_job > np.maximum(y_farm, y_fish), OCC_WAGE, occ)
         if income_now is not None:
             stay = cells == current
             y = np.where(stay, np.maximum(income_now, y), y)
@@ -759,12 +814,13 @@ class Society:
                - float(u.crowding) * crowd
                - (float(u.moving_cost) * (cells != current) if move_cost else 0.0))
         val = np.where((maps["res"][cells] >= self.cap_hh) & (cells != current), -np.inf, val)
-        val = np.where(self.passable[cells], val, -np.inf)
+        val = np.where(self.res_ok[cells] & ~self.land.mine[cells], val, -np.inf)
         return val, occ
 
     def _outside_utility(self) -> float:
         u = self.b.households.utility
-        y = float(self.b.outside.outside_household.income_yen_per_year)
+        o = self.b.outside
+        y = self.ext.wage_yen_per_day * float(o.work_days_per_year) * float(o.outside_household.workers)
         return float(u.income) * np.log(max(y, float(u.income_floor_yen)) / float(u.income_ref_yen))
 
     def _sample_candidates(self, r, center: int, maps) -> np.ndarray:
@@ -788,7 +844,8 @@ class Society:
     def _far_cdf(self, maps):
         """マップ全体から候補を選ぶときの重み（累積分布）：働き手2人の世帯が見込める収穫と、人の集まり。"""
         score = np.minimum(2.0 / np.maximum(maps["labor"], 1e-12), maps["A"]) * maps["yield"] + maps["fish"] * 2.0
-        score = np.where(self.passable, score, 0.0) + np.where(self.passable, maps["social"], 0.0)
+        job = np.where(np.isfinite(maps["job"]), np.maximum(maps["job"], 0.0), 0.0) * 2.0 / max(self.p_rice_ext, 1e-12)
+        score = np.where(self.res_ok, score + job, 0.0) + np.where(self.res_ok, maps["social"], 0.0)
         tot = score.sum()
         if tot <= 0:
             return None
@@ -824,12 +881,20 @@ class Society:
             return -1, OCC_NONE
         return int(cands[pick]), int(occ[pick])
 
-    def _settle(self, h: int, cell: int, occ: int, area=None) -> None:
-        """世帯 h が cell に住み、仕事を始める。農業なら近くの田畑を手に入れる。area は田畑の面積（まとめて計算したもの）。"""
+    def _settle(self, h: int, cell: int, occ: int, area=None, maps=None) -> None:
+        """世帯 h が cell に住み、仕事を始める。農業なら近くの田畑を手に入れる。area は田畑の面積（まとめて計算したもの）。
+        雇われるなら、maps の求人（cell から通える最もよい会社）に雇われ、求人の枠を減らす。"""
         old = self.hh.cell[h]
         self.hh.cell[h] = cell
         self.hh.occ[h] = occ
         self.hh.shop_kind[h] = -1
+        self.hh.employer[h] = -1
+        if occ == OCC_WAGE:
+            d = int(maps["job_firm"][cell])
+            self.hh.employer[h] = d
+            maps["vacancy"][d] -= float(self._labor(np.array([h]))[0])
+            if maps["vacancy"][d] <= 0.0:
+                maps["job"], maps["job_firm"] = self.mining.job_maps(self, maps["vacancy"])
         if old >= 0 and old != cell:
             self._release(h, cell)
         if occ == OCC_FARM:
@@ -896,6 +961,7 @@ class Society:
         plots = np.flatnonzero(self.land.cultivator >= 0)
         need = np.bincount(self.land.cultivator[plots], weights=self.labor_per_ha[plots] * area[plots], minlength=hh.n)
         ratio = float(self.b.farming.release_surplus_ratio)
+        want = []
         for h, l in zip(farmers, L):
             if need[h] > ratio * max(l, 1e-9):
                 mine = np.flatnonzero(self.land.cultivator == h)
@@ -907,7 +973,28 @@ class Society:
                     self.land.cultivator[c] = -1
                     tot -= self.labor_per_ha[c] * area[c]
             elif need[h] < l:
-                self._acquire_land(h, area)
+                want.append(int(h))
+        if not want:
+            return
+        # 家から耕せる範囲に、手に入る田畑（空いた田畑・借りられる田畑・開墾できる土地）が1マスもない農家は探さない（速さのため）
+        land = self.land
+        avail = (area > 0) & (((land.use > 0) & (land.cultivator < 0))
+                              | ((land.use == USE_WILD) & self.arable & (land.owner < 0)))
+        near = box_sum(avail.reshape(self.ny, self.nx).astype(np.float64), self.r_cult).ravel()
+        want = np.array([h for h in want if near[hh.cell[h]] > 0], dtype=np.int64)
+        if want.size == 0:
+            return
+        # _acquire_land と同じ規則を Numba でまとめて行う（世帯ごとにマップ全体から自分の田畑を探し直すのが重かったため）
+        f = self.b.farming
+        labor = np.zeros(hh.n)
+        labor[want] = self._labor(want)
+        plots = np.flatnonzero(land.cultivator >= 0)
+        have = np.bincount(land.cultivator[plots], weights=self.labor_per_ha[plots] * area[plots], minlength=hh.n).astype(np.float64)
+        kernels.acquire_land_many(
+            want, hh.cell[: hh.n].astype(np.int64), labor, have, area, self.pot, self.labor_per_ha, self.reclaim_py,
+            self.crop, self.arable, land.use, land.owner, land.cultivator, land.reclaim_left,
+            self.nx, self.ny, self.r_cult, float(f.cultivation_radius_km), self.grid.dx,
+            float(f.distance_labor_loss_per_km), float(f.reclaim_per_year_max_ha), USE_WILD)
 
     def _reviews(self, dt: float) -> None:
         """一部の世帯が、住む場所と仕事を見直す（SPEC 9.1）。仕事がない世帯は必ず見直す。"""
@@ -920,16 +1007,22 @@ class Society:
         draws = r.random(ids.size)
         who = ids[((draws < p) & (hh.occ[ids] != OCC_SHOP)) | (hh.occ[ids] == OCC_NONE)]
         maps = self._opportunity_maps()
+        days = float(self.b.outside.work_days_per_year)
         for h in who:
             cur = int(hh.cell[h])
-            cell, occ = self._choose(r, int(h), cur, cur, maps, True, income_now=hh.income[h] if hh.occ[h] != OCC_NONE else None)
+            now = hh.income[h] if hh.occ[h] != OCC_NONE else None
+            if hh.occ[h] == OCC_WAGE:
+                # 雇われている世帯の今の所得は、今の勤め先の賃金（去年の収支をまだ迎えていない世帯もいるため）
+                now = self.mining.wage[hh.employer[h]] * days * float(self._labor(np.array([h]))[0]) - self.land.res_rent[cur]
+            cell, occ = self._choose(r, int(h), cur, cur, maps, True, income_now=now)
             if cell < 0:
                 self._remove_household(int(h))
                 self.stats_year["emigrants"] += 1
                 continue
-            if cell == cur and hh.occ[h] != OCC_NONE:
+            # 同じマスにとどまるなら、仕事が変わるときだけ処理する（雇われている世帯は、引っ越さない限り勤め先を続ける）
+            if cell == cur and hh.occ[h] != OCC_NONE and (occ == hh.occ[h] or hh.occ[h] == OCC_WAGE):
                 continue
-            self._settle(int(h), cell, occ, maps["area"])
+            self._settle(int(h), cell, occ, maps["area"], maps)
             maps["res"][cur] -= 1
             maps["res"][cell] += 1
 
@@ -956,7 +1049,7 @@ class Society:
                 if cell < 0:
                     self.hh.alive[h] = False
                     continue
-                self._settle(h, cell, occ, maps["area"])
+                self._settle(h, cell, occ, maps["area"], maps)
                 maps["res"][cell] += 1
                 self.stats_year["immigrants"] += 1
 
@@ -1049,18 +1142,36 @@ class Society:
                 self.stats_year["emigrants"] += 1
                 continue
             hh.cell[h] = cell
-            self._settle(h, cell, occ, maps["area"])
+            self._settle(h, cell, occ, maps["area"], maps)
             maps["res"][cell] += 1
             self.stats_year["new_households"] += 1
 
     # ------------------------------------------------------------------
     # 土地市場
     # ------------------------------------------------------------------
+    def _bid_rent(self, res) -> np.ndarray:
+        """住まいの付け値地代 [円/世帯/年]：町外れ（便利さが下の方の住んでいるマス）に比べて便利な分を、効用が同じになる地代に換算する。"""
+        u = self.b.households.utility
+        lc = self.b.land.residential_rent
+        ids = self.hh.ids()
+        out = np.zeros(self.n_cells)
+        if ids.size == 0:
+            return out
+        y = float(np.median(np.maximum(self.hh.income[ids], float(u.income_floor_yen))))
+        amen = (y / float(u.income_ref_yen)) ** float(u.amenity_income_elasticity)
+        social = box_sum(res.reshape(self.ny, self.nx).astype(np.float64), self.r_social).ravel()
+        U = amen * (float(u.access) * np.log1p(self.access) - float(u.flood) * self.flood + float(u.social) * np.log1p(social))
+        lived = res > 0
+        ref = float(np.quantile(U[lived], float(lc.bid_fringe_quantile)))
+        dU = np.maximum(U - ref, 0.0)
+        return y * (1.0 - np.exp(-dU / float(u.income)))
+
     def _land_market(self, years: float) -> None:
         lc = self.b.land.residential_rent
         res = self._res_count()
         occ = res / self.cap_hh
-        rent = self.land.res_rent * np.exp(float(lc.adjust_rate) * years * (occ - float(lc.target_occupancy)))
+        rent = self.land.res_rent + (1.0 - np.exp(-float(lc.bid_adjust_rate_per_year) * years)) * (self._bid_rent(res) - self.land.res_rent)
+        rent = rent * np.exp(float(lc.adjust_rate) * years * (occ - float(lc.target_occupancy)))
         self.land.res_rent = np.clip(np.where(res > 0, rent, self.land.res_rent), float(lc.floor_yen), float(lc.max_yen))
         # 小作料の割合：借りたい面積（田畑が足りない農家）と、貸しに出ている面積の比で調整
         tc = self.b.farming.tenancy
@@ -1079,16 +1190,23 @@ class Society:
         p = self.p_rice
         farm_rent = self.tenancy_share * self.pot * area * p * (self.land.use > 0)
         total = farm_rent + self.land.res_rent * res
-        self.land.land_price = total / float(self.b.outside.interest_rate_per_year) / self.area_ha
+        self.land.land_price = total / self.interest / self.area_ha
 
     # ------------------------------------------------------------------
     # ステップ
     # ------------------------------------------------------------------
-    def step_year(self, dT: float, pf: float) -> dict:
+    def _mining_year(self) -> None:
+        self.mining.adjust(self, self.year, self.month)
+        self.mining.invest(self, self.rng["investors"], self.year, self.month)
+
+    def step_year(self, year: int, dT: float, pf: float) -> dict:
         """ウォームアップの1年。"""
+        self.year, self.month = year, 0
+        self._external_update(year)
         self.stats_year = self._empty_stats()
         self._transport_update(1.0)
         self._harvest_and_income(dT, pf)
+        self._mining_year()
         self._commerce_exit()
         self._demography()
         self._immigration(1.0)
@@ -1098,9 +1216,11 @@ class Society:
         self._land_market(1.0)
         return self.stats_year
 
-    def step_month(self, month: int, dT: float, pf: float) -> dict:
+    def step_month(self, year: int, month: int, dT: float, pf: float) -> dict:
         """本番の1か月。1年に1回の出来事は決まった月に行う。"""
         f = self.b.farming
+        self.year, self.month = year, month
+        self._external_update(year)
         interval = int(self.b.transport.roads.update_interval_months)
         if month == 1:
             self.stats_year = self._empty_stats()
@@ -1111,6 +1231,7 @@ class Society:
             self._demography()
         if month == int(f.harvest_month):
             self._harvest_and_income(dT, pf)
+            self._mining_year()
             self._commerce_exit()
             self._rebalance_farms()
         if month == 12:
@@ -1135,7 +1256,16 @@ class Society:
         use = self.land.use.copy()
         lu = np.where(use > 0, use, 0).astype(np.int8)
         lu = np.where((res > 0) & (area < 0.5 * self.area_ha), 3, lu)
-        lu = np.where(shops.sum(axis=0) > 0, 4, lu).astype(np.int8)
+        lu = np.where(shops.sum(axis=0) > 0, 4, lu)
+        lu = np.where(self.land.mine, 5, lu).astype(np.int8)
+        wage = ids[hh.occ[ids] == OCC_WAGE]
+        workers = np.bincount(hh.cell[wage], minlength=self.n_cells)
+        # 坑口のマスに、鉱物の番号 + 1（mining.yaml の minerals の順）
+        mines = np.zeros(self.n_cells, dtype=np.int16)
+        m = self.mining
+        names = list(self.b.mining.minerals.keys())
+        for d in np.flatnonzero(m.active):
+            mines[m.site[d]] = names.index(m.mineral[d]) + 1
         return {
             "population": pop.reshape(shape).astype(np.int32),
             "households": res.reshape(shape).astype(np.int32),
@@ -1145,6 +1275,8 @@ class Society:
             "shops_daily": shops[SHOP_DAILY].reshape(shape).astype(np.int16),
             "shops_specialty": shops[SHOP_SPECIALTY].reshape(shape).astype(np.int16),
             "inns": shops[SHOP_INN].reshape(shape).astype(np.int16),
+            "workers": workers.reshape(shape).astype(np.int16),
+            "mines": mines.reshape(shape),
         }
 
     def stats(self) -> dict[str, float]:
@@ -1160,6 +1292,14 @@ class Society:
             "farmland_ha": float((self.land.use > 0).sum() * self.area_ha),
             "tenancy_share": self.tenancy_share,
             "rice_export": float(self.rice_export),
+            "wage_households": float((occ == OCC_WAGE).sum()),
+            "mines": float(self.mining.active.sum()),
+            "mine_output_t": float(self.mining.output[self.mining.active].sum()),
+            "ext_wage_yen_per_day": self.ext.wage_yen_per_day,
+            "ext_productivity": self.ext.productivity,
+            "ext_cycle": self.ext.cycle,
+            "interest": self.interest,
         }
+        out.update({f"price_{k}": v for k, v in self.prices.items()})
         out.update({k: float(v) for k, v in self.stats_year.items()})
         return out

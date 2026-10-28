@@ -15,7 +15,7 @@
   pre { white-space: pre-wrap; font: inherit; background: #1e2125; padding: 8px; margin: 8px 0; }
   #status { color: #9fc5ff; min-height: 1.5em; }
   #cell { position: absolute; left: 8px; bottom: 8px; background: rgba(0,0,0,.6); padding: 6px 8px; white-space: pre; }
-  #time { font-size: 15px; font-weight: bold; }
+  #time { font-size: 15px; font-weight: bold; white-space: pre-line; }
   input[type=range] { width: 100%; }
   h2 { font-size: 14px; margin: 14px 0 4px; }
 </style>
@@ -42,6 +42,7 @@
       速度 <input id="speed" type="text" size="3"> 月/秒
       <span id="progress"></span>
     </div>
+    <div id="legend">建物の色：<span style="color:#e8e0d0">■</span>家　<span style="color:#7fa7d9">■</span>鉱山で働く人の家　<span style="color:#e05a4a">■</span>店　<span style="color:#f0a030">■</span>宿・茶屋　<span style="color:#333">■</span>鉱山（坑口）</div>
   </div>
   <div id="view"><div id="cell"></div></div>
 </div>

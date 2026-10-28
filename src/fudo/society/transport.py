@@ -77,6 +77,10 @@ class Transport:
     def person_tree(self, source: int, cutoff: float):
         return kernels.dijkstra(self.person_hours, self.nx, self.ny, int(source), float(cutoff))
 
+    def person_trees(self, sources: np.ndarray, cutoff: float):
+        """複数の出発点からの person_tree を並列にまとめて計算する。"""
+        return kernels.dijkstra_many(self.person_hours, self.nx, self.ny, sources, float(cutoff))
+
     def freight_tree(self, source: int):
         return kernels.dijkstra(self.freight_per_kg, self.nx, self.ny, int(source), np.inf)
 
